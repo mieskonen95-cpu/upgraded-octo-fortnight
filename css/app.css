@@ -216,6 +216,11 @@ input.wide { width: 170px; }
 .table td { padding: 8px 4px; border-bottom: 1px solid var(--line); }
 .table tr:last-child td { border-bottom: 0; }
 .table tr[data-action] { cursor: pointer; }
+.segmented.clip button { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.vol-bars { display: flex; align-items: flex-end; gap: 4px; height: 90px; margin: 4px 0 10px; }
+.vol-bars div { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.vol-bars i { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; }
 
 /* program */
 .select-btn { appearance: none; border: 1.5px solid transparent; background: var(--card-2); color: var(--text); font: inherit; text-align: left; border-radius: 10px; padding: 10px 30px 10px 12px; width: 100%; min-width: 0; cursor: pointer; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

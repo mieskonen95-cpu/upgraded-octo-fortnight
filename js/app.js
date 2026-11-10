@@ -3,7 +3,7 @@ import * as store from './store.js';
 import { GROUPS, OTHER_GROUP, groupOf } from './library.js';
 
 /** Shown in Settings. Keep in step with VERSION in sw.js (a test checks). */
-export const APP_VERSION = 'v10';
+export const APP_VERSION = 'v11';
 
 let S = store.load();
 const ui = {
@@ -13,6 +13,8 @@ const ui = {
   calSelected: core.isoDate(),
   programTab: 'lifts',
   progressRange: 'all',
+  totalsBy: 'workout',
+  totalsScope: 'all',
   chartInfo: '',
   draft: null,
   draftKey: null,
@@ -632,11 +634,44 @@ function viewProgress(exId) {
     <p class="chart-info muted small" id="chart-info">${esc(ui.chartInfo) || 'Tap a point for details.'}</p></section>`;
 
   h += `<section class="card"><h2>Rep records</h2>${Object.keys(recs).length ? `<div class="rep-grid">${Object.entries(recs).map(([r, v]) => `<div><span>${r}RM</span><b>${wt(v.weight)}</b><i>${dateFmt(v.date, { month: 'short', day: 'numeric' })}</i></div>`).join('')}</div>` : '<p class="muted">No sets logged yet.</p>'}</section>`;
+  h += totalsCard(ex, since);
   if (allHist.length) {
     h += `<section class="card"><h2>Recent sessions</h2><table class="table"><thead><tr><th>Date</th><th>Best set</th><th>e1RM</th></tr></thead><tbody>
       ${[...allHist].reverse().slice(0, 12).map((p) => `<tr data-action="open-workout" data-id="${p.workoutId}"><td>${dateFmt(p.date, { month: 'short', day: 'numeric', year: '2-digit' })}</td><td>${wt(p.weight)} × ${p.reps}</td><td>${wt(Math.round(p.e1rm))}</td></tr>`).join('')}
     </tbody></table></section>`;
   }
+  return h;
+}
+
+const vol = (v) => Math.round(v).toLocaleString();
+
+/** Sets and volume per workout or per week, for every exercise or just the selected one. */
+function totalsCard(ex, since) {
+  const byWeek = ui.totalsBy === 'week';
+  const exerciseId = ui.totalsScope === 'ex' ? ex.id : null;
+  const all = core.trainingTotals(S.workouts, { exerciseId, by: ui.totalsBy });
+  const from = byWeek && since !== '0000' ? core.weekStart(since) : since;
+  const rows = all.filter((r) => r.date >= from);
+  const thisWeek = core.trainingTotals(S.workouts, { exerciseId, by: 'week' }).find((r) => r.date === core.weekStart(core.isoDate()));
+  const shown = rows.slice(0, 12);
+  const max = Math.max(...shown.map((r) => r.volume), 1);
+  const short = (d) => dateFmt(d, { month: 'short', day: 'numeric' });
+  const seg = (key, opts) => `<div class="segmented clip">${opts.map(([v, label]) => `<button class="${ui[key] === v ? 'active' : ''}" data-action="totals" data-key="${key}" data-value="${v}">${label}</button>`).join('')}</div>`;
+
+  let h = `<section class="card"><h2>Sets &amp; volume</h2>`;
+  h += seg('totalsBy', [['workout', 'Per workout'], ['week', 'Per week']]);
+  h += seg('totalsScope', [['all', 'All exercises'], ['ex', esc(ex.name)]]);
+  h += `<div class="stats">
+    <div class="stat"><span>Sets this week</span><b>${thisWeek ? thisWeek.sets : 0}</b><i>${thisWeek ? `${thisWeek.workouts} workout${thisWeek.workouts === 1 ? '' : 's'}` : 'No workouts yet'}</i></div>
+    <div class="stat"><span>Volume this week</span><b>${thisWeek ? vol(thisWeek.volume) : 0}</b><i>${unit()}</i></div>
+    <div class="stat"><span>${byWeek ? 'Avg per week' : 'Avg per workout'}</span><b>${rows.length ? vol(rows.reduce((a, r) => a + r.volume, 0) / rows.length) : '—'}</b><i>${rows.length ? `${Math.round((rows.reduce((a, r) => a + r.sets, 0) / rows.length) * 10) / 10} sets` : unit()}</i></div>
+  </div>`;
+  if (!shown.length) return h + '<p class="muted">No sets logged in this range yet.</p></section>';
+  h += `<div class="vol-bars" role="img" aria-label="Volume per ${byWeek ? 'week' : 'workout'}">${[...shown].reverse().map((r) => `<div title="${short(r.date)} · ${r.sets} sets · ${vol(r.volume)} ${unit()}"><i style="height:${Math.max(2, (r.volume / max) * 100)}%"></i></div>`).join('')}</div>`;
+  h += `<table class="table"><thead><tr><th>${byWeek ? 'Week of' : 'Date'}</th><th class="num">Sets</th><th class="num">Volume (${unit()})</th></tr></thead><tbody>
+    ${shown.map((r) => `<tr${byWeek ? '' : ` data-action="open-workout" data-id="${r.workoutId}"`}><td>${short(r.date)}${byWeek ? `<div class="muted small">${r.workouts} workout${r.workouts === 1 ? '' : 's'}</div>` : (ui.totalsScope === 'all' ? `<div class="muted small">${esc(r.name)}</div>` : '')}</td><td class="num">${r.sets}</td><td class="num">${vol(r.volume)}</td></tr>`).join('')}
+  </tbody></table>`;
+  h += '<p class="muted small">Volume is weight × reps of every logged set, warm-ups excluded.</p></section>';
   return h;
 }
 
@@ -1260,6 +1295,7 @@ const actions = {
     persist(); go(`#/workout/${w.id}`);
   },
   'progress-range'(el) { ui.progressRange = el.dataset.range; render(); },
+  totals(el) { ui[el.dataset.key] = el.dataset.value; render(); },
   'chart-point'(el) { ui.chartInfo = el.dataset.info; const c = document.getElementById('chart-info'); if (c) c.textContent = ui.chartInfo; },
   'program-tab'(el) { ui.programTab = el.dataset.tab; render(); },
   'move-session'(el) {

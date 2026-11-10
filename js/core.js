@@ -264,6 +264,52 @@ export function workoutVolume(workout) {
   return v;
 }
 
+/**
+ * Working sets and volume (weight × reps) logged in a workout. Warm-ups are left out;
+ * pass `exerciseId` to count only that exercise.
+ */
+export function workoutTotals(workout, exerciseId = null) {
+  let sets = 0, volume = 0;
+  for (const e of workout.entries || []) {
+    if (exerciseId && e.exerciseId !== exerciseId) continue;
+    for (const s of e.sets) {
+      if (!s.done || s.kind === 'warmup') continue;
+      sets++;
+      if (s.weight > 0 && s.reps > 0) volume += s.weight * s.reps;
+    }
+  }
+  return { sets, volume };
+}
+
+/** Monday (YYYY-MM-DD) of the week containing an ISO date. */
+export function weekStart(iso) {
+  const d = parseIsoDate(iso);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return isoDate(d);
+}
+
+/**
+ * Set and volume totals, newest first. `by` 'workout' gives one row per workout with
+ * ≥1 counted set; 'week' sums them per Monday-first calendar week.
+ */
+export function trainingTotals(workouts, { exerciseId = null, by = 'workout' } = {}) {
+  const rows = [];
+  for (const w of workouts) {
+    const t = workoutTotals(w, exerciseId);
+    if (t.sets) rows.push({ date: w.date, workoutId: w.id, name: w.name, workouts: 1, ...t });
+  }
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+  if (by !== 'week') return rows;
+  const weeks = new Map();
+  for (const r of rows) {
+    const k = weekStart(r.date);
+    const wk = weeks.get(k) || { date: k, workouts: 0, sets: 0, volume: 0 };
+    wk.workouts++; wk.sets += r.sets; wk.volume += r.volume;
+    weeks.set(k, wk);
+  }
+  return [...weeks.values()];
+}
+
 /** Local YYYY-MM-DD. */
 export function isoDate(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');

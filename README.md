@@ -17,7 +17,7 @@ An offline-first web app (PWA) for Jim Wendler's 5/3/1. Add it to your iPhone ho
 - **Estimated 1RM**: Epley, Brzycki, or their average. PR sets show "N reps beats your e1RM PR" live, and you get a PR summary when you finish.
 - **Automatic cycle tracking**: finishing every session advances the week; at cycle end it suggests new TMs (+increment, or −10% if a PR set missed its minimum reps) for you to review.
 - **History and calendar**: month calendar with workout days (deload days in blue), a list view, editable past workouts, and logging workouts for any past date.
-- **Progress**: e1RM chart with the training max overlaid, best/latest e1RM, rep records, and recent sessions.
+- **Progress**: e1RM chart with the training max overlaid, best/latest e1RM, rep records, total sets and volume (weight × reps) per workout or per week — for all exercises or just the selected one — and recent sessions.
 - **Calculators**: plate loader and 1RM / percentage table.
 - **Backups**: JSON export/import (uses the iOS share sheet), a reminder after every completed cycle (or 30 days) when there are workouts not yet backed up, and a CSV export of every set.
 - Light/dark mode, safe-area aware, works offline via a service worker.
