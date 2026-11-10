@@ -2,6 +2,9 @@ import * as core from './core.js';
 import * as store from './store.js';
 import { GROUPS, OTHER_GROUP, groupOf } from './library.js';
 
+/** Shown in Settings. Keep in step with VERSION in sw.js (a test checks). */
+export const APP_VERSION = 'v10';
+
 let S = store.load();
 const ui = {
   lastHash: null,
@@ -835,6 +838,8 @@ function viewSettings() {
   </section>
   <section class="card"><h2>Install on iPhone</h2>
     <p class="muted small">Open this page in Safari, tap <b>Share</b> → <b>Add to Home Screen</b>. It launches full screen and works offline.</p>
+    <p class="muted small">App version ${APP_VERSION}. Updates install when the app is opened online.</p>
+    <button class="link" data-action="check-update">Check for update</button>
   </section>`;
 }
 
@@ -1353,6 +1358,16 @@ const actions = {
     persist(); go('#/today');
   },
   'export-json'() { exportBackup(); },
+  async 'check-update'() {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      await reg?.update();
+      if (reg?.installing || reg?.waiting) { toast('Update found — reloading…'); return; }
+      const res = await fetch('sw.js', { cache: 'no-store' });
+      const live = (await res.text()).match(/VERSION = '([^']+)'/)?.[1];
+      if (live && live !== APP_VERSION) { toast(`Updating to ${live}…`); location.reload(); } else toast(`You're on the latest version (${APP_VERSION})`);
+    } catch { toast('Could not check — are you online?'); }
+  },
   'snooze-backup'() { S.backupSnoozeUntil = new Date(Date.now() + 3 * 86400000).toISOString(); persist(); render(); toast("OK — I'll remind you in 3 days"); },
   'export-csv'() { shareOrDownload(csv(), `531-sets-${core.isoDate()}.csv`, 'text/csv'); },
   'import-json'() { document.getElementById('import-file').click(); },
@@ -1469,7 +1484,20 @@ document.addEventListener('change', async (ev) => {
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.matches('input[data-field]')) ev.target.blur(); });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // updateViaCache 'none': always fetch sw.js fresh when checking for updates.
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    // Home-screen apps are often resumed rather than relaunched, so also check when shown again.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
+  // A new version took over: reload so its files are used (state is already saved).
+  let reloaded = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    const reload = () => { if (!reloaded) { reloaded = true; location.reload(); } };
+    if (document.activeElement?.matches?.('input, textarea, select')) document.activeElement.addEventListener('blur', reload, { once: true });
+    else reload();
+  });
 }
 navigator.storage?.persist?.().catch(() => {});
 

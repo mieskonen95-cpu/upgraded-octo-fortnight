@@ -1,5 +1,5 @@
 // Offline cache for the app shell. Bump VERSION whenever app files change.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `wendler-log-${VERSION}`;
 const ASSETS = [
   './', './index.html', './css/app.css', './js/app.js', './js/core.js', './js/store.js', './js/library.js',
@@ -7,7 +7,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -15,11 +15,13 @@ self.addEventListener('activate', (e) => {
 });
 
 // Network first (so updates show up when online), falling back to cache offline.
+// cache: 'no-cache' revalidates with the server instead of reusing the browser's HTTP cache
+// (GitHub Pages lets browsers keep files for 10 minutes, which hid updates).
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
         return res;
