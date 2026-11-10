@@ -240,3 +240,30 @@ test('apply a weight to the next set or all sets', () => {
   assert.deepEqual(sets.map((s) => s.weight), [40, 50, 60, 60, 60, 40]);
   assert.deepEqual(core.applyWeightTargets(sets, 5, 'next'), []);
 });
+
+test('workout and weekly set/volume totals', () => {
+  const set = (o) => core.makeSet({ done: true, ...o });
+  const w = (id, date, entries) => ({ id, date, name: id, entries });
+  const workouts = [
+    w('a', '2026-11-02', [ // Monday
+      { exerciseId: 'sq', sets: [set({ kind: 'warmup', weight: 40, reps: 5 }), set({ kind: 'main', weight: 100, reps: 5 }), set({ kind: 'main', weight: 110, reps: 3, done: false })] },
+      { exerciseId: 'row', sets: [set({ weight: 50, reps: 10 }), set({ weight: 0, reps: 10 })] },
+    ]),
+    w('b', '2026-11-08', [{ exerciseId: 'sq', sets: [set({ weight: 100, reps: 5 }), set({ weight: 100, reps: 5 })] }]), // Sunday, same week
+    w('c', '2026-11-09', [{ exerciseId: 'row', sets: [set({ weight: 60, reps: 8 })] }]),
+    w('d', '2026-11-10', [{ exerciseId: 'sq', sets: [set({ weight: 100, reps: 5, done: false })] }]),
+  ];
+  assert.deepEqual(core.workoutTotals(workouts[0]), { sets: 3, volume: 1000 });
+  assert.deepEqual(core.workoutTotals(workouts[0], 'sq'), { sets: 1, volume: 500 });
+  assert.equal(core.weekStart('2026-11-08'), '2026-11-02');
+  assert.equal(core.weekStart('2026-11-09'), '2026-11-09');
+
+  const perWorkout = core.trainingTotals(workouts);
+  assert.deepEqual(perWorkout.map((r) => r.workoutId), ['c', 'b', 'a']);
+  const perWeek = core.trainingTotals(workouts, { by: 'week' });
+  assert.deepEqual(perWeek, [
+    { date: '2026-11-09', workouts: 1, sets: 1, volume: 480 },
+    { date: '2026-11-02', workouts: 2, sets: 5, volume: 2000 },
+  ]);
+  assert.deepEqual(core.trainingTotals(workouts, { exerciseId: 'sq', by: 'week' }), [{ date: '2026-11-02', workouts: 2, sets: 3, volume: 1500 }]);
+});
