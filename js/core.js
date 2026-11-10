@@ -394,6 +394,100 @@ export function groupInfo(entries) {
   return out;
 }
 
+// ---------- reordering ----------
+
+/** Contiguous runs [start, end] of items sharing a non-null key; null-key items are runs of one. */
+export function blocks(keys) {
+  const out = [];
+  let i = 0;
+  while (i < keys.length) {
+    let j = i;
+    if (keys[i] != null) while (j + 1 < keys.length && keys[j + 1] === keys[i]) j++;
+    out.push([i, j]);
+    i = j + 1;
+  }
+  return out;
+}
+
+/**
+ * Where item i can move. Inside a superset, up/down swap within it; at the superset's edge (or for a
+ * standalone item) up/down move the whole block past the neighbouring block — a whole superset counts
+ * as one step, so links never break. top/bottom always move the whole block.
+ * Returns { kind: 'within' | 'block', ok } for a direction.
+ */
+export function moveKind(keys, i, dir) {
+  const bs = blocks(keys);
+  const b = bs.findIndex(([s, e]) => i >= s && i <= e);
+  const [s, e] = bs[b];
+  if (e > s && ((dir === 'up' && i > s) || (dir === 'down' && i < e))) return { kind: 'within', ok: true };
+  const ok = dir === 'up' || dir === 'top' ? b > 0 : b < bs.length - 1;
+  return { kind: 'block', ok, size: e - s + 1 };
+}
+
+/** Move item i of `list` (see moveKind). `keyOf(item)` gives its group key or null. Mutates; returns i's new index. */
+export function moveItem(list, i, dir, keyOf) {
+  const keys = list.map(keyOf);
+  const item = list[i];
+  const { kind, ok } = moveKind(keys, i, dir);
+  if (!ok) return i;
+  if (kind === 'within') {
+    const j = dir === 'up' ? i - 1 : i + 1;
+    [list[i], list[j]] = [list[j], list[i]];
+    return j;
+  }
+  const bs = blocks(keys);
+  const b = bs.findIndex(([s, e]) => i >= s && i <= e);
+  const order = bs.map((_, k) => k);
+  order.splice(b, 1);
+  order.splice(dir === 'up' ? b - 1 : dir === 'down' ? b + 1 : dir === 'top' ? 0 : bs.length - 1, 0, b);
+  const items = order.flatMap((k) => list.slice(bs[k][0], bs[k][1] + 1));
+  list.splice(0, list.length, ...items);
+  return list.indexOf(item);
+}
+
+/** Group keys for a training day's accessories, where `linkNext` links an item to the one after it. */
+export function linkKeys(list) {
+  const keys = [];
+  let n = 0;
+  list.forEach((a, i) => {
+    if (i > 0 && list[i - 1].linkNext) keys.push(keys[i - 1]);
+    else keys.push(a.linkNext && i < list.length - 1 ? `g${n++}` : null);
+  });
+  return keys;
+}
+
+/** moveItem for a `linkNext` list (training-day accessories); relinks so supersets stay intact. */
+export function moveLinked(list, i, dir) {
+  const keys = linkKeys(list);
+  const wrapped = list.map((a, k) => ({ a, k: keys[k] }));
+  const j = moveItem(wrapped, i, dir, (x) => x.k);
+  wrapped.forEach((x, k) => {
+    const next = wrapped[k + 1];
+    if (x.k != null && next && next.k === x.k) x.a.linkNext = true; else delete x.a.linkNext;
+    list[k] = x.a;
+  });
+  return j;
+}
+
+/**
+ * Copy set si's weight to other sets of the same exercise. scope 'next': the following set.
+ * scope 'all': every other set of the same kind that isn't checked off (drop sets only from a drop set).
+ * Returns the indexes changed.
+ */
+export function applyWeightTargets(sets, si, scope) {
+  const src = sets[si];
+  if (!src) return [];
+  if (scope === 'next') return si + 1 < sets.length ? [si + 1] : [];
+  const drop = src.style === 'drop';
+  return sets.map((s, k) => k).filter((k) => k !== si && !sets[k].done && sets[k].kind === src.kind && (sets[k].style === 'drop') === drop);
+}
+
+export function applyWeight(sets, si, scope) {
+  const ks = applyWeightTargets(sets, si, scope);
+  for (const k of ks) sets[k].weight = sets[si].weight;
+  return ks;
+}
+
 // ---------- backup reminder ----------
 
 /**

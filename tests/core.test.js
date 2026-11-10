@@ -188,3 +188,55 @@ test('backup reminder after each cycle or 30 days', () => {
   // snoozed
   assert.equal(core.backupDue({ ...base, cycle: { number: 2 }, backupSnoozeUntil: '2026-11-05T00:00:00Z' }, now), null);
 });
+
+test('moving skips over a whole superset and keeps it linked', () => {
+  const mk = (n, g) => ({ n, ...(g ? { groupId: g } : {}) });
+  const list = [mk('A'), mk('B1', 'x'), mk('B2', 'x'), mk('C')];
+  const key = (e) => e.groupId ?? null;
+  const names = () => list.map((e) => e.n).join(',');
+  assert.equal(core.moveItem(list, 3, 'up', key), 1);
+  assert.equal(names(), 'A,C,B1,B2');
+  assert.equal(core.moveItem(list, 1, 'down', key), 3);
+  assert.equal(names(), 'A,B1,B2,C');
+  // within a superset, swap; at its edge, the whole superset moves
+  assert.equal(core.moveItem(list, 2, 'up', key), 1);
+  assert.equal(names(), 'A,B2,B1,C');
+  assert.equal(core.moveItem(list, 1, 'up', key), 0);
+  assert.equal(names(), 'B2,B1,A,C');
+  assert.equal(core.moveItem(list, 3, 'top', key), 0);
+  assert.equal(names(), 'C,B2,B1,A');
+  assert.equal(core.moveItem(list, 1, 'bottom', key), 2);
+  assert.equal(names(), 'C,A,B2,B1');
+  assert.equal(core.moveItem(list, 0, 'up', key), 0);
+  assert.deepEqual(core.groupInfo(list).map((g) => g && g.letter), [null, null, 'A', 'A']);
+  assert.equal(core.moveKind(list.map(key), 2, 'up').kind, 'block');
+  assert.equal(core.moveKind(list.map(key), 3, 'up').kind, 'within');
+});
+
+test('moving linkNext accessories keeps links intact', () => {
+  const list = [{ n: 'A' }, { n: 'B1', linkNext: true }, { n: 'B2' }, { n: 'C' }];
+  assert.deepEqual(core.linkKeys(list), [null, 'g0', 'g0', null]);
+  assert.equal(core.moveLinked(list, 3, 'up'), 1);
+  assert.deepEqual(list.map((a) => `${a.n}${a.linkNext ? '+' : ''}`), ['A', 'C', 'B1+', 'B2']);
+  assert.equal(core.moveLinked(list, 3, 'up'), 2);
+  assert.deepEqual(list.map((a) => `${a.n}${a.linkNext ? '+' : ''}`), ['A', 'C', 'B2+', 'B1']);
+  assert.equal(core.moveLinked(list, 2, 'up'), 1);
+  assert.deepEqual(list.map((a) => `${a.n}${a.linkNext ? '+' : ''}`), ['A', 'B2+', 'B1', 'C']);
+});
+
+test('apply a weight to the next set or all sets', () => {
+  const sets = [
+    core.makeSet({ kind: 'warmup', weight: 40 }),
+    core.makeSet({ kind: 'accessory', weight: 50, done: true }),
+    core.makeSet({ kind: 'accessory', weight: 60 }),
+    core.makeSet({ kind: 'accessory', weight: 50 }),
+    core.makeSet({ kind: 'accessory', weight: 50 }),
+    core.makeSet({ kind: 'accessory', weight: 40, style: 'drop' }),
+  ];
+  assert.deepEqual(core.applyWeight(sets, 2, 'next'), [3]);
+  assert.equal(sets[3].weight, 60);
+  sets[3].weight = 50;
+  assert.deepEqual(core.applyWeight(sets, 2, 'all'), [3, 4]);
+  assert.deepEqual(sets.map((s) => s.weight), [40, 50, 60, 60, 60, 40]);
+  assert.deepEqual(core.applyWeightTargets(sets, 5, 'next'), []);
+});
