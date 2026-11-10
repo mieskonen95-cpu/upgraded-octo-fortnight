@@ -319,7 +319,8 @@ function viewWorkout(w, mode) {
           <input type="text" inputmode="numeric" aria-label="Reps" class="${s.amrap ? 'amrap' : ''}" data-e="${ei}" data-s="${si}" data-field="reps" value="${s.reps ?? ''}" placeholder="${s.targetReps ?? ''}${s.amrap ? '+' : ''}">
           <button class="check" aria-label="Mark set done" aria-pressed="${s.done}" data-action="toggle-set" data-e="${ei}" data-s="${si}">✓</button>
         </div>
-        <div class="set-meta" id="meta-${ei}-${si}">${setMeta(w, e, s)}</div>`).join('')}
+        <div class="set-meta" id="meta-${ei}-${si}">${setMeta(w, e, s)}</div>
+        <div class="apply-row" id="apply-${ei}-${si}"></div>`).join('')}
       <div class="entry-foot">
         <button class="link" data-action="add-set" data-e="${ei}">+ Set</button>
         <button class="link" data-action="add-drop" data-e="${ei}" ${e.sets.length ? '' : 'disabled'}>+ Drop</button>
@@ -773,12 +774,14 @@ function viewSession(id) {
       </div>
       <p class="muted small">${!suppLift || suppLift.id === d.mainLiftId ? 'Supplemental weights are shown in the main lift table above.' : 'Weights for this lift are shown in its table above.'}</p>`;
   }
+  const accKeys = core.linkKeys(d.accessories || []);
   h += `</section><section class="card"><h2>Accessories</h2>
     ${(d.accessories || []).map((a, i) => `<div class="acc-row ${a.linkNext ? 'linked' : ''} ${i > 0 && d.accessories[i - 1].linkNext ? 'linked-prev' : ''}">
       <button class="select-btn" data-action="open-picker" data-mode="acc" data-i="${i}">${esc(exById(a.exerciseId)?.name || 'Choose…')}</button>
       <input type="text" inputmode="numeric" aria-label="Sets" data-draft="accessories.${i}.sets" data-num value="${a.sets}"><span class="x">×</span>
       <input type="text" inputmode="numeric" aria-label="Reps" data-draft="accessories.${i}.reps" data-num value="${a.reps}">
-      <button class="icon-btn" data-action="acc-move" data-i="${i}" data-delta="-1" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="icon-btn" data-action="acc-move" data-i="${i}" data-dir="up" aria-label="Move up" ${core.moveKind(accKeys, i, 'up').ok ? '' : 'disabled'}>↑</button>
+      <button class="icon-btn" data-action="acc-move" data-i="${i}" data-dir="down" aria-label="Move down" ${core.moveKind(accKeys, i, 'down').ok ? '' : 'disabled'}>↓</button>
       <button class="icon-btn danger" data-action="acc-remove" data-i="${i}" aria-label="Remove">×</button>
       <div class="acc-opts">
         <button class="chip ${a.repeatLast ? 'active' : ''}" data-action="acc-toggle" data-i="${i}" data-key="repeatLast" aria-pressed="${!!a.repeatLast}">↻ Repeat last time</button>
@@ -873,6 +876,43 @@ function tool1rm() {
       const reps = p === 100 ? 1 : Math.max(1, Math.round(30 * (100 / p - 1)));
       return `<tr><td>${p}%</td><td>${wt(pw)}</td><td>${reps}</td></tr>`;
     }).join('')}</tbody></table>`;
+}
+
+function openEntryMenu(i) {
+  const w = currentWorkout();
+  const e = w.entries[i];
+  if (!e) { closeSheet(); return; }
+  const groups = core.groupInfo(w.entries);
+  const g = groups[i];
+  const keys = w.entries.map((x) => x.groupId ?? null);
+  const next = w.entries[i + 1];
+  const linkedNext = next && e.groupId && next.groupId === e.groupId;
+  const mv = (dir) => core.moveKind(keys, i, dir);
+  const what = (m) => (m.kind === 'block' && m.size > 1 ? ` ${g.type.toLowerCase()} ${g.letter}` : '');
+  const btn = (dir, icon, label) => { const m = mv(dir); return `<button data-action="entry-move" data-e="${i}" data-dir="${dir}" ${m.ok ? '' : 'disabled'}>${icon} Move${what(m)} ${label}</button>`; };
+  const order = w.entries.map((x, k) => `<li class="${k === i ? 'current' : ''} ${groups[k] ? 'grouped' : ''}">${groups[k] ? `<span class="ss-tag">${groups[k].letter}${groups[k].pos + 1}</span>` : ''}${esc(x.name)}</li>`).join('');
+  openSheet(`<div class="sheet-head"><h2>${esc(e.name)}</h2><button class="link" data-action="close-sheet">Close</button></div>
+    <div class="menu">
+      ${next && !linkedNext ? `<button data-action="entry-link" data-e="${i}">⛓ Superset with next: ${esc(next.name)}</button>` : ''}
+      ${g ? `<button data-action="entry-unlink" data-e="${i}">Remove from ${g.type.toLowerCase()} ${g.letter}</button>` : ''}
+      ${w.entries.length > 1 ? `<div class="move-grid">${btn('up', '↑', 'up')}${btn('down', '↓', 'down')}${btn('top', '⤒', 'to top')}${btn('bottom', '⤓', 'to bottom')}</div>
+      <ol class="order-list">${order}</ol>` : ''}
+      <button class="danger" data-action="remove-entry" data-e="${i}">Remove exercise</button>
+    </div>`);
+}
+
+/** Show "Apply to next / all" chips under a set whose weight was just set, when they'd change something. */
+function showApply(ei, si) {
+  const box = document.getElementById(`apply-${ei}-${si}`);
+  const w = currentWorkout();
+  const sets = w?.entries[ei]?.sets;
+  if (!box || !sets) return;
+  document.querySelectorAll('.apply-row').forEach((b) => { if (b !== box) b.innerHTML = ''; });
+  const src = sets[si];
+  const differs = (scope) => core.applyWeightTargets(sets, si, scope).some((k) => sets[k].weight !== src.weight);
+  if (!(src.weight > 0)) { box.innerHTML = ''; return; }
+  const chip = (scope, label) => `<button class="chip" data-action="apply-weight" data-e="${ei}" data-s="${si}" data-scope="${scope}">${label}</button>`;
+  box.innerHTML = [differs('next') && chip('next', '↓ Apply to next'), differs('all') && chip('all', '⇊ Apply to all')].filter(Boolean).join('');
 }
 
 // ---------- sheet ----------
@@ -1142,22 +1182,7 @@ const actions = {
     e.sets.push(core.dropSetAfter(e.sets.at(-1), exById(e.exerciseId)?.rounding || S.settings.rounding));
     persist(); render();
   },
-  'entry-menu'(el) {
-    const w = currentWorkout();
-    const i = Number(el.dataset.e);
-    const e = w.entries[i];
-    const g = core.groupInfo(w.entries)[i];
-    const next = w.entries[i + 1];
-    const linkedNext = next && e.groupId && next.groupId === e.groupId;
-    openSheet(`<div class="sheet-head"><h2>${esc(e.name)}</h2><button class="link" data-action="close-sheet">Close</button></div>
-      <div class="menu">
-        ${next && !linkedNext ? `<button data-action="entry-link" data-e="${i}">⛓ Superset with next: ${esc(next.name)}</button>` : ''}
-        ${g ? `<button data-action="entry-unlink" data-e="${i}">Remove from ${g.type.toLowerCase()} ${g.letter}</button>` : ''}
-        ${i > 0 ? `<button data-action="entry-move" data-e="${i}" data-delta="-1">↑ Move up</button>` : ''}
-        ${next ? `<button data-action="entry-move" data-e="${i}" data-delta="1">↓ Move down</button>` : ''}
-        <button class="danger" data-action="remove-entry" data-e="${i}">Remove exercise</button>
-      </div>`);
-  },
+  'entry-menu'(el) { openEntryMenu(Number(el.dataset.e)); },
   'entry-link'(el) {
     const es = currentWorkout().entries, i = Number(el.dataset.e);
     const a = es[i], b = es[i + 1];
@@ -1180,11 +1205,22 @@ const actions = {
     persist(); closeSheet(); render();
   },
   'entry-move'(el) {
-    const es = currentWorkout().entries, i = Number(el.dataset.e), j = i + Number(el.dataset.delta);
-    if (j < 0 || j >= es.length) return;
-    [es[i], es[j]] = [es[j], es[i]];
+    const es = currentWorkout().entries, dir = el.dataset.dir;
+    const j = core.moveItem(es, Number(el.dataset.e), dir, (x) => x.groupId ?? null);
     core.normalizeGroups(es);
-    persist(); closeSheet(); render();
+    persist(); render();
+    // Keep the menu open after ↑/↓ so repeated moves are one tap each.
+    if (dir === 'up' || dir === 'down') openEntryMenu(j); else closeSheet();
+  },
+  'apply-weight'(el) {
+    const ei = Number(el.dataset.e), si = Number(el.dataset.s), scope = el.dataset.scope;
+    const e = currentWorkout().entries[ei];
+    const ks = core.applyWeight(e.sets, si, scope);
+    if (!ks.length) return;
+    persist(); render();
+    toast(`${wt(e.sets[si].weight)} ${unit()} → ${ks.length === 1 ? `set ${ks[0] + 1}` : `${ks.length} sets`}`);
+    // After "next", offer the same on the set it went to, so tapping again cascades down.
+    if (scope === 'next') showApply(ei, ks[0]);
   },
   'close-sheet'() { closeSheet(); },
   'create-and-pick'() {
@@ -1263,9 +1299,7 @@ const actions = {
   'acc-toggle'(el) { const a = ui.draft.accessories[el.dataset.i]; a[el.dataset.key] = !a[el.dataset.key]; render(); },
   'acc-drops'(el) { const a = ui.draft.accessories[el.dataset.i]; a.drops = ((a.drops || 0) + 1) % 4; render(); },
   'acc-move'(el) {
-    const a = ui.draft.accessories, i = Number(el.dataset.i), j = i + Number(el.dataset.delta);
-    if (j < 0 || j >= a.length) return;
-    [a[i], a[j]] = [a[j], a[i]];
+    core.moveLinked(ui.draft.accessories, Number(el.dataset.i), el.dataset.dir);
     render();
   },
   'acc-remove'(el) { ui.draft.accessories.splice(Number(el.dataset.i), 1); render(); },
@@ -1351,6 +1385,7 @@ document.addEventListener('input', (ev) => {
     persist();
     const meta = document.getElementById(`meta-${el.dataset.e}-${el.dataset.s}`);
     if (meta) meta.innerHTML = setMeta(w, e, s);
+    if (el.dataset.field === 'weight') showApply(Number(el.dataset.e), Number(el.dataset.s));
   } else if (el.dataset.wfield) {
     const w = currentWorkout();
     if (!w) return;
