@@ -3,7 +3,7 @@ import * as store from './store.js';
 import { GROUPS, OTHER_GROUP, groupOf } from './library.js';
 
 /** Shown in Settings. Keep in step with VERSION in sw.js (a test checks). */
-export const APP_VERSION = 'v11';
+export const APP_VERSION = 'v12';
 
 let S = store.load();
 const ui = {
@@ -304,6 +304,14 @@ function viewWorkout(w, mode) {
       <a class="btn block" href="#/today">Done</a></section>`;
   }
 
+  if (!w.entries.length && S.workouts.some((x) => x.id !== w.id && x.entries?.length)) {
+    h += `<section class="card copy-past">
+      <h2>Same as last time?</h2>
+      <p class="muted small">Copy the exercises, sets and weights from a past workout. Last time's reps become your targets.</p>
+      <button class="btn primary block" data-action="copy-from">Copy a past workout</button>
+    </section>`;
+  }
+
   const groups = core.groupInfo(w.entries);
   w.entries.forEach((e, ei) => {
     const g = groups[ei];
@@ -343,7 +351,8 @@ function viewWorkout(w, mode) {
     </section>`;
   h += active
     ? `<div class="actions"><button class="btn danger-ghost" data-action="discard-workout">Discard</button><button class="btn primary grow" data-action="finish-workout">Finish workout</button></div>`
-    : `<div class="actions"><button class="btn danger-ghost" data-action="delete-workout">Delete workout</button></div>`;
+    : `${w.entries.length ? '<button class="btn block" data-action="repeat-workout">↻ Repeat this workout today</button>' : ''}
+      <div class="actions"><button class="btn danger-ghost" data-action="delete-workout">Delete workout</button></div>`;
   return h;
 }
 
@@ -365,6 +374,26 @@ function finishWorkout() {
   stopRest();
   ui.justFinished = w.id;
   go(`#/workout/${w.id}`);
+}
+
+/** Sheet listing past workouts to copy into the current (empty) one. */
+function openCopyPicker() {
+  const w = currentWorkout();
+  const list = sortByDateDesc(S.workouts.filter((x) => x.id !== w?.id && x.entries?.length)).slice(0, 40);
+  openSheet(`
+    <div class="sheet-head"><h2>Copy a past workout</h2><button class="link" data-action="close-sheet">Close</button></div>
+    <div class="picker">${list.map((x) => `
+      <button class="pick copy-pick" data-action="copy-workout" data-id="${x.id}">
+        <span><strong>${esc(x.name)}</strong> <span class="muted small">${dateFmt(x.date)}</span>
+        <span class="muted small block">${esc(x.entries.map((e) => e.name).join(' · '))}</span></span>
+      </button>`).join('')}
+    </div>`);
+}
+
+/** Fill `w` with a copy of past workout `src` (exercises, sets, weights, supersets). */
+function copyInto(w, src) {
+  w.entries = core.copyWorkoutEntries(src);
+  if (!w.templateId && (w.name === 'Workout' || w.name === 'Logged workout')) w.name = src.name;
 }
 
 function discardWorkout(skipConfirm) {
@@ -1164,6 +1193,24 @@ const actions = {
   'start-empty'() {
     if (S.activeWorkout && !confirm('Discard the workout in progress and start a new one?')) return;
     S.activeWorkout = newWorkout({});
+    persist(); go('#/workout/active');
+  },
+  'copy-from'() { openCopyPicker(); },
+  'copy-workout'(el) {
+    const w = currentWorkout();
+    const src = S.workouts.find((x) => x.id === el.dataset.id);
+    if (!w || !src) return;
+    if (w.entries.length && !confirm('Replace the exercises in this workout?')) return;
+    copyInto(w, src);
+    persist(); closeSheet(); render();
+    toast(`Copied ${src.name} from ${dateFmt(src.date)}`);
+  },
+  'repeat-workout'() {
+    const src = currentWorkout();
+    if (!src) return;
+    if (S.activeWorkout && !confirm('Discard the workout in progress and start a new one?')) return;
+    S.activeWorkout = newWorkout({});
+    copyInto(S.activeWorkout, src);
     persist(); go('#/workout/active');
   },
   'toggle-set'(el) {
