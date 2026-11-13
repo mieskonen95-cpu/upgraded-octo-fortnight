@@ -267,3 +267,43 @@ test('workout and weekly set/volume totals', () => {
   ]);
   assert.deepEqual(core.trainingTotals(workouts, { exerciseId: 'sq', by: 'week' }), [{ date: '2026-11-02', workouts: 2, sets: 3, volume: 1500 }]);
 });
+
+test('copyWorkoutEntries repeats done sets with fresh ids, last reps as targets and remapped supersets', () => {
+  const src = {
+    id: 'w1', date: '2026-11-10',
+    entries: [
+      { id: 'e1', exerciseId: 'sq', name: 'Squat', role: 'main', tm: 100, sets: [
+        core.makeSet({ kind: 'warmup', pct: 0.4, weight: 40, targetReps: 5, reps: 5, done: true }),
+        core.makeSet({ kind: 'main', pct: 0.85, weight: 85, targetReps: 5, reps: 8, amrap: true, done: true }),
+      ] },
+      { id: 'e2', exerciseId: 'row', name: 'Row', role: 'accessory', groupId: 'g', sets: [
+        core.makeSet({ kind: 'accessory', weight: 30, targetReps: 10, reps: 12, done: true }),
+        core.makeSet({ kind: 'accessory', weight: 30, targetReps: 10, reps: null, done: false }),
+        core.makeSet({ kind: 'accessory', weight: 24, reps: 8, style: 'drop', done: true }),
+      ] },
+      { id: 'e3', exerciseId: 'dip', name: 'Dip', role: 'accessory', groupId: 'g', sets: [
+        core.makeSet({ kind: 'accessory', weight: 0, targetReps: 10, reps: null, done: false }),
+      ] },
+    ],
+  };
+  const out = core.copyWorkoutEntries(src);
+  assert.equal(out.length, 3);
+  assert.ok(out.every((e, i) => e.id !== src.entries[i].id));
+  assert.equal(out[1].groupId, out[2].groupId);
+  assert.notEqual(out[1].groupId, 'g');
+  // main: AMRAP keeps its programmed minimum, no "last time" comparison
+  assert.deepEqual(out[0].sets.map((s) => [s.kind, s.weight, s.targetReps, s.amrap, s.done, s.reps]), [['warmup', 40, 5, false, false, null], ['main', 85, 5, true, false, null]]);
+  assert.equal(out[0].tm, 100);
+  // accessory: only the done sets, reps done become the target, prev remembered, drop style kept
+  assert.equal(out[1].sets.length, 2);
+  assert.deepEqual(out[1].sets[0].prev, { weight: 30, reps: 12 });
+  assert.equal(out[1].sets[0].targetReps, 12);
+  assert.equal(out[1].sets[1].style, 'drop');
+  // nothing done: all sets copied as planned
+  assert.equal(out[2].sets.length, 1);
+  assert.equal(out[2].sets[0].targetReps, 10);
+  assert.equal(out[2].sets[0].prev, null);
+  // the source is untouched
+  assert.equal(src.entries[1].sets.length, 3);
+  assert.equal(src.entries[0].sets[1].done, true);
+});

@@ -392,6 +392,32 @@ export function accessorySets({ last, repeatLast, sets: nSets = 3, reps = 10, dr
   return sets;
 }
 
+/**
+ * Fresh entries that repeat a past workout: same exercises, order, supersets and weights.
+ * Uses the sets that were checked off (all sets if none were); performed reps become the
+ * targets and each set remembers what was done last time so the workout shows "Beat it".
+ */
+export function copyWorkoutEntries(workout) {
+  const groups = new Map();
+  const entries = (workout?.entries || []).map((e) => {
+    const done = e.sets.filter((s) => s.done);
+    const src = done.length ? done : e.sets;
+    const sets = src.map((s) => makeSet({
+      kind: s.kind, pct: s.pct ?? null, weight: s.weight ?? null, amrap: !!s.amrap, ...(s.style ? { style: s.style } : {}),
+      targetReps: s.amrap || s.kind === 'warmup' ? s.targetReps ?? null : s.reps ?? s.targetReps ?? null,
+      prev: s.done && !s.amrap && s.kind !== 'warmup' ? prevOf(s) : null,
+    }));
+    const entry = { id: uid(), exerciseId: e.exerciseId, name: e.name, role: e.role, tm: e.tm ?? null, sets };
+    if (e.label) entry.label = e.label;
+    if (e.groupId) {
+      if (!groups.has(e.groupId)) groups.set(e.groupId, uid());
+      entry.groupId = groups.get(e.groupId);
+    }
+    return entry;
+  });
+  return normalizeGroups(entries);
+}
+
 /** Add `n` drop sets after the last set, each ~20% lighter than the one before. */
 export function appendDrops(sets, n, rounding = 2.5) {
   for (let i = 0; i < (n || 0); i++) sets.push(dropSetAfter(sets.at(-1), rounding));
